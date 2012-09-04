@@ -183,6 +183,7 @@ class Watchdog
             if ((n_read == -1) && (errno != EAGAIN))
             {
                std::cerr << "read pipe("<< wdt->m_pipe_r << ") wrong, errno("<< errno <<")" << std::endl;
+               ::pthread_mutex_unlock(&wdt->m_lock);
                throw WatchdogExp();
             }
 
