@@ -2,7 +2,7 @@
 #include <exception>
 #include <ctime>
 #include <cstdlib>
-#include <tr1/memory>
+#include <memory>
 
 #include <unistd.h>
 #include <pthread.h>
@@ -12,7 +12,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 
-namespace Trend { namespace ERS {
+namespace MC {
 
 class WatchdogExp: public std::exception {
    public:
@@ -255,16 +255,15 @@ class Watchdog
       bool m_is_stop;
 };
 
-   }//end of ns ERS
-}//end of ns Trend
+}//end of ns MC
 
 class Worker
 {
    private:
-      std::tr1::shared_ptr<Trend::ERS::Watchdog> m_wdt;
+      std::shared_ptr<MC::Watchdog> m_wdt;
 
    public:
-      Worker(std::tr1::shared_ptr<Trend::ERS::Watchdog> wdt): m_wdt(wdt) {}
+      Worker(std::shared_ptr<MC::Watchdog> wdt): m_wdt(wdt) {}
 
       void run()
       {
@@ -279,7 +278,7 @@ class Worker
 
 int main(int argc, char **argv)
 {
-   std::tr1::shared_ptr<Trend::ERS::Watchdog> wdt(new Trend::ERS::Watchdog(5));
+   std::shared_ptr<MC::Watchdog> wdt(new MC::Watchdog(5));
    Worker w(wdt);
    int ret = -1;
 
