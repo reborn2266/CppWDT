@@ -236,6 +236,7 @@ class Watchdog
          if (ret != 1)
          {
             std::cerr << "kick WDT failed" << std::endl;
+            ::pthread_mutex_unlock(&m_lock);
             throw WatchdogExp();
          }
 
