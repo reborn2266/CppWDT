@@ -14,7 +14,12 @@
 
 namespace Trend { namespace ERS {
 
-class WatchdogExp: public std::exception {};
+class WatchdogExp: public std::exception {
+   public:
+      WatchdogExp();
+};
+
+WatchdogExp::WatchdogExp() {}
 
 class Watchdog
 {
@@ -62,7 +67,7 @@ class Watchdog
             case 0:
                //child, go back to do its work
                ::close(m_pipe_r);
-               throw WatchdogExp();
+               return 1;
 
             default:
                int ret = -1;
@@ -178,7 +183,6 @@ class Watchdog
             if ((n_read == -1) && (errno != EAGAIN))
             {
                std::cerr << "read pipe("<< wdt->m_pipe_r << ") wrong, errno("<< errno <<")" << std::endl;
-               ::perror("");
                throw WatchdogExp();
             }
 
