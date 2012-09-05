@@ -219,4 +219,23 @@ void Watchdog::start()
    }
 }
 
+void Watchdog::kick()
+{     
+   int ret = -1;
+   char data = 'Y';
+
+   ::pthread_mutex_lock(&m_lock);
+
+   ret = ::write(m_pipe_w, &data, 1);
+   if (ret != 1)
+   {
+      std::cerr << "kick WDT failed" << std::endl;
+      ::pthread_mutex_unlock(&m_lock);
+      throw WatchdogExp();
+   }
+
+   ::pthread_mutex_unlock(&m_lock);
+   std::cout << "[WDT] kick happen" << std::endl;
+}
+
 }//end of MC
