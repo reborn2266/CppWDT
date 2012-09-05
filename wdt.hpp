@@ -34,6 +34,6 @@ class Watchdog
       bool m_is_stop;
 };
 
-}//end of ns Trend
+}//end of ns MC
 
 #endif //end of _MC_WATCHDOG_HXX_
