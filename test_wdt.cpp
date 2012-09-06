@@ -30,8 +30,5 @@ int main(int argc, char **argv)
    int ret = -1;
 
    wdt->start();
-   while (true)
-   {
-      w.run();
-   }
+   w.run();
 }
