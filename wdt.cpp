@@ -11,6 +11,8 @@
 #include <sys/types.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <errno.h>
+#include <string.h>
 
 #include "wdt.hpp"
 
@@ -157,39 +159,56 @@ void* Watchdog::timeoutChecker(void *threadID)
 void* Watchdog::kickedChecker(void *threadID)
 {
    Watchdog *wdt = reinterpret_cast<Watchdog *> (threadID);
+   fd_set readfds;
 
    while (true)
    {
       char data = '\0';
       int n_read = 0;
+      struct timeval tv;
+
+      tv.tv_sec = 1;
+      tv.tv_usec = 0;
 
       ::pthread_mutex_lock(&wdt->m_lock);
-
       if (wdt->m_is_stop)
       {
          ::pthread_mutex_unlock(&wdt->m_lock);
          break;
       }
-
-      // this is a nonblocking read. Why?
-      // think about this: if no one  write to pipe, we might be blocked in read. then,
-      // how can we detect if we are forced to stop kickedChecker?
-      n_read = ::read(wdt->m_pipe_r, &data, 1);
-      if ((n_read == -1) && (errno != EAGAIN))
-      {
-         std::cerr << "read pipe("<< wdt->m_pipe_r << ") wrong, errno("<< errno <<")" << std::endl;
-         ::pthread_mutex_unlock(&wdt->m_lock);
-         throw WatchdogExp();
-      }
-
-      if (data == 'Y')
-      {
-         std::cout << "[WDT] sense kicked" << std::endl;
-         wdt->m_last_kicked_time = std::time(NULL);
-      }
-
       ::pthread_mutex_unlock(&wdt->m_lock);
-      ::sleep(1);
+
+      FD_ZERO(&readfds);
+      FD_SET(wdt->m_pipe_r, &readfds);
+
+      int ret = select(wdt->m_pipe_r+1, &readfds, NULL, NULL, &tv);
+      if (ret == -1)
+      {
+         std::cout << "read pipe error(" << strerror(errno) << ")" << std::endl;
+      }
+      else if (ret)
+      {
+         std::cout << "sense select something" << std::endl;
+         if (FD_ISSET(wdt->m_pipe_r, &readfds))
+         {
+            n_read = ::read(wdt->m_pipe_r, &data, 1);
+            if (data == 'Y')
+            {
+               std::cout << "sense kicked" << std::endl;
+               ::pthread_mutex_lock(&wdt->m_lock);
+               wdt->m_last_kicked_time = std::time(NULL);
+               ::pthread_mutex_unlock(&wdt->m_lock);
+            }
+            else
+            {
+               std::cout << "sense something in select, but data is not correct(" << data << ")" << std::endl;
+            }
+         }
+      }
+      else
+      {
+         std::cout << "not kick before select timeout" << std::endl;
+      }
    }
 
    return NULL;
