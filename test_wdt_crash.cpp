@@ -14,10 +14,12 @@ class Worker
 
       void run()
       {
+         char *p = NULL;
          while (true)
          {
             std::cout << "[Worker] running" << std::endl;
-            ::sleep(10);
+            char a = *(p+1);
+            std::cout << a << std::endl;
             m_wdt->kick();
          }
       }

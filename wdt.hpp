@@ -10,7 +10,7 @@ class WatchdogExp: public std::exception {};
 class Watchdog
 {
    protected:
-      void resetMembers(unsigned int timeout_period);
+      int resetMembers(unsigned int timeout_period);
       int setNonblocking(int fd);
       int startOnce();
       static void* timeoutChecker(void *threadID);
@@ -19,7 +19,7 @@ class Watchdog
    public:
       Watchdog(unsigned int timeout_period=10);
       void start();
-      void kick();
+      int kick();
 
    private:
       unsigned int m_timeout_period;

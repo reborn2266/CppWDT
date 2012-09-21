@@ -2,7 +2,7 @@
 #include <exception>
 #include <ctime>
 #include <cstdlib>
-#include <tr1/memory>
+#include <memory>
 
 #include <unistd.h>
 #include <pthread.h>
@@ -11,14 +11,12 @@
 #include <sys/types.h>
 #include <signal.h>
 #include <sys/wait.h>
-#include <errno.h>
-#include <string.h>
 
 #include "wdt.hpp"
 
 namespace MC {
 
-void Watchdog::resetMembers(unsigned int timeout_period)
+int Watchdog::resetMembers(unsigned int timeout_period)
 {
    m_timeout_period = timeout_period;
    m_is_timeout = false;
@@ -30,16 +28,16 @@ void Watchdog::resetMembers(unsigned int timeout_period)
 
    if (::pipe(pfd) == -1)
    {
-      std::cerr << "create PIPE failed" << std::endl;
-      throw WatchdogExp();
+      return -1;
    }
 
    m_pipe_r = pfd[0];
    m_pipe_w = pfd[1];
 
    ::pthread_mutex_init(&m_lock, NULL);
+   return 0;
 }
-
+#if 1
 int Watchdog::setNonblocking(int fd)
 {
    int flags;
@@ -56,8 +54,7 @@ int Watchdog::startOnce()
    switch (m_worker_pid = ::fork())
    {
       case -1:
-         std::cerr << "fork failed" << std::endl;
-         std::exit(-1);
+         throw WatchdogExp();
 
       case 0:
          //child, go back to do its work
@@ -72,37 +69,34 @@ int Watchdog::startOnce()
          ret = setNonblocking(m_pipe_r);
          if (ret)
          {
-            std::cerr << "set nonblocking failed" << std::endl;
             throw WatchdogExp();
          }
 
          ret = ::pthread_create(&m_timeoutChecker_handle, NULL, timeoutChecker, this);
          if (ret)
          {
-            std::cerr << "create timeoutChecker failed" << std::endl;
             throw WatchdogExp();
          }
 
          ret = ::pthread_create(&m_kickedChecker_handle, NULL, kickedChecker, this);
          if (ret)
          {
-            std::cerr << "create kickedChecker failed" << std::endl;
+            ::pthread_mutex_lock(&m_lock);
+            m_is_stop = true;
+            ::pthread_mutex_unlock(&m_lock);
+            ::pthread_join(m_timeoutChecker_handle, NULL);
             throw WatchdogExp();
          }
 
          while (true)
          {
-            std::cout << "[WDT] check timeout" << std::endl;
             ::pthread_mutex_lock(&m_lock);
 
             if (m_is_timeout)
             {
-               std::cerr << "[WDT] timeout!!" << std::endl;
                m_is_stop = true;
-               std::cout << "[WDT] kill worker" << std::endl;
                ::kill(m_worker_pid, SIGKILL);
                ::waitpid(m_worker_pid, NULL, 0);
-               std::cout << "[WDT] recycle worker done" << std::endl;
                ::close(m_pipe_r);
                ::pthread_mutex_unlock(&m_lock);
                break;
@@ -112,10 +106,8 @@ int Watchdog::startOnce()
             ::sleep(1);
          }
 
-         std::cout << "[WDT] wait monitor threads" << std::endl;
          ::pthread_join(m_timeoutChecker_handle, NULL);
          ::pthread_join(m_kickedChecker_handle, NULL);
-         std::cout << "[WDT] recycle monitor threads done" << std::endl;
          ::pthread_mutex_destroy(&m_lock);
          break;
    }
@@ -125,7 +117,7 @@ int Watchdog::startOnce()
 
 void* Watchdog::timeoutChecker(void *threadID)
 {
-   Watchdog *wdt = reinterpret_cast<Watchdog *> (threadID);
+   Watchdog *wdt = static_cast<Watchdog *> (threadID);
 
    while (true)
    {
@@ -139,8 +131,11 @@ void* Watchdog::timeoutChecker(void *threadID)
          break;
       }
 
+      std::cout << "check timeout" << std::endl;
+
       if ((cur_time - wdt->m_last_kicked_time) > wdt->m_timeout_period)
       {
+         std::cout << "timeout" << std::endl;
          wdt->m_is_timeout = true;
       }
       else
@@ -158,18 +153,16 @@ void* Watchdog::timeoutChecker(void *threadID)
 
 void* Watchdog::kickedChecker(void *threadID)
 {
-   Watchdog *wdt = reinterpret_cast<Watchdog *> (threadID);
+   Watchdog *wdt = static_cast<Watchdog *> (threadID);
    fd_set readfds;
+   char err_str[64];
 
    while (true)
    {
-      char data = '\0';
-      int n_read = 0;
       struct timeval tv;
 
       tv.tv_sec = 1;
       tv.tv_usec = 0;
-
       ::pthread_mutex_lock(&wdt->m_lock);
       if (wdt->m_is_stop)
       {
@@ -184,11 +177,12 @@ void* Watchdog::kickedChecker(void *threadID)
       int ret = select(wdt->m_pipe_r+1, &readfds, NULL, NULL, &tv);
       if (ret == -1)
       {
-         std::cout << "read pipe error(" << strerror(errno) << ")" << std::endl;
       }
       else if (ret)
       {
-         std::cout << "sense select something" << std::endl;
+         char data = '\0';
+         int n_read = 0;
+
          if (FD_ISSET(wdt->m_pipe_r, &readfds))
          {
             n_read = ::read(wdt->m_pipe_r, &data, 1);
@@ -199,24 +193,20 @@ void* Watchdog::kickedChecker(void *threadID)
                wdt->m_last_kicked_time = std::time(NULL);
                ::pthread_mutex_unlock(&wdt->m_lock);
             }
-            else
-            {
-               std::cout << "sense something in select, but data is not correct(" << data << ")" << std::endl;
-            }
          }
       }
-      else
-      {
-         std::cout << "not kick before select timeout" << std::endl;
-      }
    }
-
    return NULL;
 }
 
 Watchdog::Watchdog(unsigned int timeout_period)
 {
-   resetMembers(timeout_period);
+   int ret = -1;
+
+   if (resetMembers(timeout_period) < 0)
+   {
+      throw WatchdogExp();
+   }
 }
 
 void Watchdog::start()
@@ -231,30 +221,29 @@ void Watchdog::start()
       }
       else
       {
-         std::cout << "[WDT] restart worker" << std::endl;
+         std::cout << "restart" << std::endl;
          // reset all members to restart again
          resetMembers(m_timeout_period);
       }
    }
 }
 
-void Watchdog::kick()
-{     
+int Watchdog::kick()
+{
    int ret = -1;
-   char data = 'Y';
+   const char data = 'Y';
 
    ::pthread_mutex_lock(&m_lock);
-
    ret = ::write(m_pipe_w, &data, 1);
    if (ret != 1)
    {
-      std::cerr << "kick WDT failed" << std::endl;
       ::pthread_mutex_unlock(&m_lock);
-      throw WatchdogExp();
+      return -1;
    }
-
+   std::cout << "kick" << std::endl;
    ::pthread_mutex_unlock(&m_lock);
-   std::cout << "[WDT] kick happen" << std::endl;
+   return 1;
 }
 
-}//end of MC
+}//end of ns MC
+#endif
